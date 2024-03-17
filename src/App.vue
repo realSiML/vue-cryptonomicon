@@ -34,7 +34,9 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
-                @keydown.enter="add"
+                @keyup="getHints(ticker)"
+                @keydown="exists = false"
+                @keydown.enter="add(ticker)"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -42,31 +44,22 @@
                 placeholder="Например DOGE"
               />
             </div>
-            <!-- <div
+            <div
+              v-if="hints.length > 0"
               class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
             >
               <span
+                v-for="(hint, idx) in hints"
+                @click="add(hint), getHints(ticker)"
+                :key="idx"
                 class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
               >
-                BTC
+                {{ hint }}
               </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                DOGE
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                BCH
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                CHD
-              </span>
-            </div> -->
-            <!-- <div class="text-sm text-red-600">Такой тикер уже добавлен</div> -->
+            </div>
+            <div v-if="exists" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
@@ -188,13 +181,35 @@ export default {
       tickers: [],
       sel: null,
       graph: [],
+      coins: [],
+      hints: [],
+      exists: false,
     };
   },
 
+  async created() {
+    const f = await fetch(
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+    );
+    const data = await f.json();
+
+    this.coins = Object.values(data.Data).map((item) => {
+      const { Symbol, FullName } = item;
+      return { Symbol, FullName };
+    });
+  },
+
   methods: {
-    add() {
+    add(tickerName) {
+      if (this.tickers.find((t) => t.name === tickerName.toUpperCase())) {
+        this.exists = true;
+        return;
+      } else {
+        this.exists = false;
+      }
+
       const currentTicker = {
-        name: this.ticker,
+        name: tickerName.toUpperCase(),
         price: "-",
       };
 
@@ -205,7 +220,8 @@ export default {
         );
         const data = await f.json();
 
-        // currentTicker.price = data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+        // currentTicker.price =
+        //   data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
         this.tickers.find((t) => t.name === currentTicker.name).price =
           data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
 
@@ -232,6 +248,24 @@ export default {
       return this.graph.map(
         (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
       );
+    },
+
+    getHints(ticker) {
+      this.hints = [];
+
+      if (ticker === "") {
+        return;
+      }
+
+      ticker = ticker.toUpperCase();
+      for (const coin of this.coins) {
+        if (coin.Symbol.includes(ticker) || coin.FullName.includes(ticker)) {
+          this.hints.push(coin.Symbol);
+        }
+        if (this.hints.length == 4) {
+          return;
+        }
+      }
     },
   },
 };
