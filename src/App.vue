@@ -126,11 +126,11 @@
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="t in filteredTickers()"
+            v-for="t in paginatedTickers"
             :key="t.name"
             @click="select(t)"
             :class="{
-              'border-4': sel === t,
+              'border-4': selectedTicker === t,
             }"
             class="bg-white overflow-hidden shadow rounded-lg border-purple-800 border-solid cursor-pointer"
           >
@@ -165,13 +165,13 @@
         </dl>
         <hr class="w-full border-t border-gray-600 my-4" />
       </template>
-      <section v-if="sel" class="relative">
+      <section v-if="selectedTicker" class="relative">
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          {{ sel.name }} - USD
+          {{ selectedTicker.name }} - USD
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
-            v-for="(bar, idx) in normalizeGraph()"
+            v-for="(bar, idx) in normalizedGraph"
             :key="idx"
             :style="{ height: `${bar}%` }"
             class="bg-purple-800 border w-10"
@@ -210,18 +210,34 @@
 </template>
 
 <script>
+// [x] 1. Наличие в состоянии ЗАВИСИМЫХ ДАННЫХ | Критичность: 5+
+// [ ] 2. При удалении остается подписка на загрузку тикера | Критичность: 5
+// [ ] 3. Запросы напрямую внутри компонента | Критичность: 5
+// [ ] 4. Обработка ошибок API | Критичность: 5
+// [ ] 5. Количество запросов | Критичность: 4
+// [x] 6. При удалении тикера не изменяется localStorage | Критичность: 4
+// [x] 7. Одинаковый код в watch | Критичность: 3
+// [ ] 8. localStorage и анонимные вкладки | Критичность: 3
+// [ ] 9. График ужасно выглядит, если будет много цен | Критичность: 2
+// [ ] 10. Магические строки и числа (URL, 5000 мс, ключ localStorage, кол-во тикеров на странице) | Критичность: 1
+
+// Параллельно
+// [x] График сломан, если везде одинаковые значения
+// [x] При удалении тикера остается выбор
 export default {
   name: "App",
 
   data() {
     return {
       ticker: "",
-      tickers: [],
-      sel: null,
-      graph: [],
-      page: 1,
       filter: "",
-      hasNextPage: true,
+
+      tickers: [],
+      selectedTicker: null,
+
+      graph: [],
+
+      page: 1,
     };
   },
 
@@ -230,13 +246,21 @@ export default {
       new URL(window.location).searchParams.entries()
     );
 
-    if (windowData.filter) {
-      this.filter = windowData.filter;
-    }
+    const VALID_KEYS = ["filter", "page"];
 
-    if (windowData.page) {
-      this.page = windowData.page;
-    }
+    VALID_KEYS.forEach((key) => {
+      if (windowData[key]) {
+        this[key] = windowData[key];
+      }
+    });
+
+    // if (windowData.filter) {
+    //   this.filter = windowData.filter;
+    // }
+
+    // if (windowData.page) {
+    //   this.page = windowData.page;
+    // }
 
     const tickersData = localStorage.getItem("cryptonomicon-list");
 
@@ -248,20 +272,49 @@ export default {
     }
   },
 
-  methods: {
-    filteredTickers() {
-      const start = (this.page - 1) * 6;
-      const end = this.page * 6;
-
-      const filteredTickers = this.tickers.filter((ticker) =>
-        ticker.name.includes(this.filter)
-      );
-
-      this.hasNextPage = filteredTickers.length > end;
-
-      return filteredTickers.slice(start, end);
+  computed: {
+    startIndex() {
+      return (this.page - 1) * 6;
     },
 
+    endIndex() {
+      return this.page * 6;
+    },
+
+    filteredTickers() {
+      return this.tickers.filter((ticker) => ticker.name.includes(this.filter));
+    },
+
+    paginatedTickers() {
+      return this.filteredTickers.slice(this.startIndex, this.endIndex);
+    },
+
+    hasNextPage() {
+      return this.filteredTickers.length > this.endIndex;
+    },
+
+    normalizedGraph() {
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
+
+      if (maxValue === minValue) {
+        return this.graph.map(() => 50);
+      }
+
+      return this.graph.map(
+        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
+      );
+    },
+
+    pageStateOptions() {
+      return {
+        filter: this.filter,
+        page: this.page,
+      };
+    },
+  },
+
+  methods: {
     subscribeToUpdates(tickerName) {
       setInterval(async () => {
         const f = await fetch(
@@ -277,6 +330,7 @@ export default {
           this.graph.push(data.USD);
         }
       }, 5000);
+      this.ticker = "";
     },
 
     add() {
@@ -285,47 +339,49 @@ export default {
         price: "-",
       };
 
-      this.tickers.push(currentTicker);
-      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
+      this.tickers = [...this.tickers, currentTicker];
+      this.filter = "";
+
       this.subscribeToUpdates(currentTicker.name);
-      this.ticker = "";
     },
 
     select(ticker) {
-      this.sel = ticker;
-      this.graph = [];
+      this.selectedTicker = ticker;
     },
 
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t != tickerToRemove);
-    },
 
-    normalizeGraph() {
-      const maxValue = Math.max(...this.graph);
-      const minValue = Math.min(...this.graph);
-
-      return this.graph.map(
-        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
-      );
+      if (this.selectedTicker === tickerToRemove) {
+        this.selectedTicker = null;
+      }
     },
   },
 
   watch: {
-    filter() {
-      this.page = 1;
-
-      window.history.pushState(
-        null,
-        document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
-      );
+    selectedTicker() {
+      this.graph = [];
     },
 
-    page() {
+    tickers() {
+      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
+    },
+
+    paginatedTickers() {
+      if (this.paginatedTickers.length === 0 && this.page > 1) {
+        this.page -= 1;
+      }
+    },
+
+    filter() {
+      this.page = 1;
+    },
+
+    pageStateOptions(value) {
       window.history.pushState(
         null,
         document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+        `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
       );
     },
   },
