@@ -108,11 +108,15 @@
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
           {{ selectedTicker.name }} - USD
         </h3>
-        <div class="flex items-end border-gray-600 border-b border-l h-64">
+        <div
+          ref="graph"
+          class="flex items-end border-gray-600 border-b border-l h-64"
+        >
           <div
+            ref="bars"
             v-for="(bar, idx) in normalizedGraph"
             :key="idx"
-            :style="{ height: `${bar}%` }"
+            :style="{ height: `${bar}%`, width: `${graphBarWidth}` }"
             class="bg-purple-800 border w-10"
           ></div>
         </div>
@@ -178,6 +182,8 @@ export default {
       selectedTicker: null,
 
       graph: [],
+      maxGraphElements: 1,
+      graphBarWidth: 39,
 
       page: 1,
     };
@@ -216,6 +222,16 @@ export default {
     }
 
     setInterval(this.updateTickers, 5000);
+  },
+
+  mounted() {
+    window.addEventListener("resize", this.calculateMaxGraphElements);
+    window.addEventListener("resize", this.sliceGraphElements);
+  },
+
+  beforeUnmount() {
+    window.removeEventListener("resize", this.calculateMaxGraphElements);
+    window.removeEventListener("resize", this.sliceGraphElements);
   },
 
   computed: {
@@ -261,6 +277,20 @@ export default {
   },
 
   methods: {
+    calculateMaxGraphElements() {
+      if (!this.$refs.graph) {
+        return;
+      }
+
+      this.maxGraphElements = this.$refs.graph.clientWidth / this.graphBarWidth;
+    },
+
+    sliceGraphElements() {
+      if (this.graph.length > this.maxGraphElements) {
+        this.graph = this.graph.slice(-this.maxGraphElements);
+      }
+    },
+
     updateTicker(tickerName, price) {
       this.tickers
         .filter((t) => t.name === tickerName)
@@ -268,6 +298,7 @@ export default {
           if (t === this.selectedTicker) {
             this.graph.push(price);
           }
+          this.sliceGraphElements();
           t.price = price;
         });
     },
